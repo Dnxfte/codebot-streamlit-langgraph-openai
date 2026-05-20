@@ -16,6 +16,7 @@ from agent import invoke_codebot_agent, stream_openai_chat
 APP_DIR = Path(__file__).resolve().parent
 load_dotenv(APP_DIR / ".env")
 
+# Доступні опції sidebar винесені в константи, щоб UI і промпти не дублювали рядки.
 LANGUAGES = ["python", "javascript", "typescript", "java", "c++", "c#", "rust", "go", "php"]
 MODELS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"]
 CHAT_MODE = "Звичайний чат"
@@ -48,6 +49,7 @@ ACTION_PROMPTS = {
 
 
 def init_session_state() -> None:
+    # Streamlit перезапускає скрипт на кожну взаємодію, тому стан UI тримаємо тут.
     defaults = {
         "messages": [],
         "snippets": [],
@@ -69,6 +71,7 @@ def init_session_state() -> None:
 
 
 def apply_technical_theme() -> None:
+    # Невеликий CSS-шар робить інтерфейс схожим на технічний dark dashboard.
     st.markdown(
         """
         <style>
@@ -136,6 +139,7 @@ def apply_technical_theme() -> None:
 
 
 def get_openai_key() -> str:
+    # У Streamlit Cloud ключ приходить зі st.secrets, локально може бути у .env.
     secret_key = ""
     try:
         secret_key = str(st.secrets["OPENAI_API_KEY"]).strip()
@@ -163,6 +167,7 @@ def code_language(language: str) -> str:
 
 
 def refresh_usage_stats() -> None:
+    # Частина статистики рахується напряму зі стану, щоб не розсинхронізувати UI.
     st.session_state.usage_stats["messages"] = len(st.session_state.messages)
     st.session_state.usage_stats["snippets"] = len(st.session_state.snippets)
 
@@ -173,6 +178,7 @@ def next_snippet_id() -> int:
 
 
 def save_snippet_from_editor(language: str, code: str, note: str) -> None:
+    # Ручне збереження з вкладки "Код"; agent-tools синхронізуються окремо в agent.py.
     snippet = {
         "id": next_snippet_id(),
         "language": language,
@@ -202,6 +208,7 @@ def delete_snippet(snippet_id: int) -> None:
 
 
 def pseudo_stream(text: str) -> Iterable[str]:
+    # LangGraph invoke повертає готову відповідь, тому імітуємо streaming по словах.
     for word in text.split(" "):
         yield word + " "
         time.sleep(0.012)
@@ -215,6 +222,7 @@ def langgraph_stream(
     temperature: float,
     max_tokens: int,
 ) -> Iterable[str]:
+    # Обгортка для st.write_stream: після invoke оновлюємо snippets і журнал tools.
     result = invoke_codebot_agent(
         user_text=user_text,
         thread_id=thread_id,
@@ -238,6 +246,7 @@ def run_streamed_response(
     api_key: str,
     messages_for_chat: list[dict] | None = None,
 ) -> str:
+    # Єдина точка генерації відповідей для чату і швидких дій у вкладці "Код".
     if not api_key:
         st.error(
             "OPENAI_API_KEY не знайдено. Створіть .streamlit/secrets.toml або .env "
@@ -277,6 +286,7 @@ def build_code_prompt(action: str, language: str, code: str) -> str:
 
 def render_sidebar() -> tuple[str, str, float, int, str]:
     with st.sidebar:
+        # Sidebar керує моделлю, режимом агента і колекцією snippets у межах сесії.
         st.subheader("Параметри")
         language = st.selectbox("Мова програмування", LANGUAGES, key="selected_language")
         model_name = st.selectbox("Модель OpenAI", MODELS, index=0)
@@ -312,6 +322,7 @@ def render_sidebar() -> tuple[str, str, float, int, str]:
 
 
 def render_chat_tab(mode: str, model_name: str, temperature: float, max_tokens: int, api_key: str) -> None:
+    # Історія зберігається у session_state.messages і відтворюється після кожного rerun.
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
@@ -370,6 +381,7 @@ def render_code_tab(
     max_tokens: int,
     api_key: str,
 ) -> None:
+    # Вкладка "Код" поєднує редактор, preview, швидкі дії та форму збереження snippet.
     left, right = st.columns([1, 1], gap="large")
 
     with left:
@@ -427,6 +439,7 @@ def render_code_tab(
 
 
 def render_snippets_tab() -> None:
+    # Snippets живуть у пам'яті сесії, але їх можна експортувати у JSON.
     if not st.session_state.snippets:
         st.info("Снипетів ще немає. Збережіть код у вкладці «Код» або попросіть агента зробити це.")
     else:
@@ -460,6 +473,7 @@ def render_snippets_tab() -> None:
 
 
 def render_stats_tab() -> None:
+    # Статистика навчальна: показує активність сесії і розподіл snippets за мовами.
     refresh_usage_stats()
     chat_chars = sum(len(message.get("content", "")) for message in st.session_state.messages)
     stats = st.session_state.usage_stats
@@ -505,6 +519,7 @@ def render_stats_tab() -> None:
 
 
 def main() -> None:
+    # Точка входу Streamlit: налаштування сторінки, ключа, sidebar і вкладок.
     st.set_page_config(
         page_title="CodeBot — AI Code Reviewer",
         page_icon="💻",

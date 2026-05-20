@@ -24,6 +24,7 @@ load_dotenv()
 
 
 class AgentState(TypedDict):
+    # Єдиний стан LangGraph: історія, snippets і службовий журнал tool-call.
     messages: Annotated[list, add_messages]
     snippets: list[dict]
     next_snippet_id: int
@@ -51,6 +52,7 @@ SAVE_SNIPPET_MARKER = "CODEBOT_SAVE_SNIPPET_REQUEST::"
 
 
 def _get_openai_api_key() -> str:
+    # У Streamlit ключ прокидається в os.environ з app.py; локально його читає dotenv.
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError(
@@ -64,6 +66,7 @@ def create_llm(
     temperature: float = 0.2,
     max_tokens: int = 1000,
 ) -> ChatOpenAI:
+    # Одна фабрика моделі для звичайного чату і LangGraph-агента.
     return ChatOpenAI(
         model=model_name,
         temperature=temperature,
@@ -94,6 +97,8 @@ def save_snippet(
     state: Annotated[dict, InjectedState],
 ) -> str:
     """Підготувати збереження фрагмента коду у колекцію користувача."""
+    # ToolNode не має прямого доступу до st.session_state, тому повертаємо JSON-маркер.
+    # invoke_codebot_agent потім знаходить цей маркер і синхронізує snippets зі Streamlit.
     snippets = list(state.get("snippets", []) or [])
     snippet_id = int(state.get("next_snippet_id") or _new_snippet_id(snippets))
     snippet = {
@@ -146,6 +151,7 @@ def calculator(expression: str) -> str:
     if not expression:
         return "Вираз порожній."
 
+    # Не використовуємо eval: пропускаємо тільки прості символи математичного виразу.
     if not re.fullmatch(r"[0-9+\-*/%().,\sEeipPI]+", expression):
         return "Дозволені лише числа, дужки, оператори + - * / %, pi та e."
 
@@ -170,6 +176,7 @@ def wikipedia_search(query: str) -> str:
 
     wrapper_error = ""
     for language in ("uk", "en"):
+        # Спочатку пробуємо LangChain Community wrapper, щоб агент мав типовий LangChain-tool flow.
         try:
             wrapper = WikipediaAPIWrapper(
                 top_k_results=1,
@@ -182,6 +189,7 @@ def wikipedia_search(query: str) -> str:
         except Exception as exc:
             wrapper_error = str(exc)
 
+        # Fallback через пакет wikipedia корисний, якщо wrapper не знайшов сторінку.
         try:
             wikipedia.set_lang(language)
             titles = wikipedia.search(query, results=3)
@@ -215,6 +223,7 @@ def analyze_code_static(language: str, code: str) -> str:
     issues: list[str] = []
     lines = code.splitlines()
 
+    # Набір правил навмисно простий: це швидка підказка перед LLM-аналізом.
     if language == "python":
         for index, line in enumerate(lines, start=1):
             stripped = line.strip()
@@ -269,6 +278,7 @@ TOOLS = [
 
 
 def _message_text(content: Any) -> str:
+    # LangChain може повертати content як рядок або список частин, залежно від моделі.
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -283,6 +293,7 @@ def _message_text(content: Any) -> str:
 
 
 def _collect_tool_log(messages: list[Any]) -> list[str]:
+    # Перетворюємо LangChain messages у компактний журнал для Streamlit expander.
     log: list[str] = []
     for message in messages:
         tool_calls = getattr(message, "tool_calls", None) or []
@@ -314,6 +325,7 @@ def _extract_latest_answer(messages: list[Any]) -> str:
 
 
 def _sync_snippet_requests(messages: list[Any], snippets: list[dict]) -> list[dict]:
+    # save_snippet повертає JSON у tool-message; тут переносимо його в UI-колекцію.
     updated = [dict(snippet) for snippet in snippets]
     known = {
         (
@@ -357,10 +369,13 @@ def create_codebot_graph(
     llm_with_tools = create_llm(model_name, temperature, max_tokens).bind_tools(TOOLS)
 
     def agent_node(state: AgentState) -> dict:
+        # Кожен крок агента отримує системний промпт і накопичену історію діалогу.
         messages = [SystemMessage(content=CODEBOT_SYSTEM_PROMPT), *state.get("messages", [])]
         response = llm_with_tools.invoke(messages)
         return {"messages": [response]}
 
+    # Класичний цикл ReAct: agent вирішує, чи потрібен tool, ToolNode виконує його,
+    # після чого відповідь tool знову повертається агенту для фінального висновку.
     builder = StateGraph(AgentState)
     builder.add_node("agent", agent_node)
     builder.add_node("tools", ToolNode(TOOLS))
@@ -379,6 +394,7 @@ def invoke_codebot_agent(
     temperature: float,
     max_tokens: int,
 ) -> dict:
+    # thread_id дозволяє LangGraph checkpointer тримати окрему історію для сесії Streamlit.
     current_snippets = [dict(snippet) for snippet in snippets or []]
     graph = create_codebot_graph(model_name, float(temperature), int(max_tokens))
     config = {"configurable": {"thread_id": thread_id or str(uuid.uuid4())}}
@@ -425,6 +441,7 @@ def stream_openai_chat(
     max_tokens: int,
     system_prompt: str,
 ):
+    # Звичайний режим не використовує tools: лише streaming-відповідь ChatOpenAI.
     llm = create_llm(model_name, temperature, max_tokens)
     langchain_messages = [
         SystemMessage(content=system_prompt or CODEBOT_SYSTEM_PROMPT),
