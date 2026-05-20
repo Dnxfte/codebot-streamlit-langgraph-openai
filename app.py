@@ -354,7 +354,12 @@ def render_chat_tab(mode: str, model_name: str, temperature: float, max_tokens: 
     if st.session_state.tool_call_log:
         with st.expander("Журнал інструментів агента"):
             for item in st.session_state.tool_call_log[-12:]:
-                st.caption(item)
+                if "\n" in item:
+                    title, body = item.split("\n", 1)
+                    st.markdown(f"**{title}**")
+                    st.code(body, language="text")
+                else:
+                    st.caption(item)
 
 
 def render_code_tab(

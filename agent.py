@@ -291,9 +291,19 @@ def _collect_tool_log(messages: list[Any]) -> list[str]:
             log.append(f"Виклик інструмента: {name}")
         if getattr(message, "type", "") == "tool":
             content = _message_text(getattr(message, "content", ""))
-            first_line = content.splitlines()[0] if content else "tool result"
-            log.append(f"Результат інструмента: {first_line[:160]}")
+            preview = _preview_tool_result(content)
+            log.append(f"Результат інструмента:\n{preview}")
     return log
+
+
+def _preview_tool_result(content: str, limit: int = 900) -> str:
+    lines = [line.rstrip() for line in (content or "").strip().splitlines()]
+    preview = "\n".join(line for line in lines if line.strip())
+    if not preview:
+        return "Інструмент не повернув текстового результату."
+    if len(preview) > limit:
+        return preview[:limit].rstrip() + "\n..."
+    return preview
 
 
 def _extract_latest_answer(messages: list[Any]) -> str:
